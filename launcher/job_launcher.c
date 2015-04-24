@@ -53,7 +53,7 @@ int alloc_host_entry(launcher_session_t *session, int host_index)
     session->host_info[host_index] = (host_info_t *)malloc(k);
     
     if (session->host_info[host_index] == NULL) {
-        fprintf(stderr, "error allocating session, %s(%d)\n",
+        fprintf(stderr, "error allocating session, %s(%d) \n",
 	        strerror(errno), errno);
         return -1;  
     }
@@ -82,7 +82,7 @@ static int parse_hostfile(char *file)
     launcher_session_t *session = &launcher_session;
     
     if ((fp = fopen(file, "rb")) == NULL) {
-        fprintf(stderr, "error opening hostfile %s: %s(%d)", 
+        fprintf(stderr, "error opening hostfile %s: %s(%d) \n", 
                 file, strerror(errno), errno);	
         exit(2);
     }
@@ -104,9 +104,10 @@ static int parse_hostfile(char *file)
 	}
     }
     fclose(fp);
+    count = session->host_count;
     
     /* using count for count and index; hence +1 */
-    return count + 1;
+    return count;
 }
 
 /*****************************************************************************/
