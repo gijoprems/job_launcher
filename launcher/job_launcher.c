@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 
 #include "job_launcher.h"
+#include "comlink.h"
 
 /*****************************************************************************/
 
@@ -31,7 +32,7 @@
 
 /*****************************************************************************/
 
-launcher_session_t launcher_session;
+static launcher_session_t launcher_session;
 
 /*****************************************************************************/
 
@@ -86,26 +87,27 @@ static int parse_hostfile(char *file)
                 file, strerror(errno), errno);	
         exit(2);
     }
+
     session->host_count = 0;
-    
     while(!feof(fp)) {
         memset(buffer, '\n', MAX_HOSTNAME_LEN);
 	
         if (fgets(buffer, MAX_HOSTNAME_LEN, fp) != NULL) {
 	    status = alloc_host_entry(session, session->host_count);
 	    
-	    if (status == 0)
+	    if (status == 0) {
 	        count = session->host_count;
 	        strcpy(session->host_info[count]->hostname, buffer);
-		printf("host name: %s, count = %d \n",
-		        session->host_info[session->host_count]->hostname,
-		        session->host_count);
-	        session->host_count += 1;
-	}
+                printf("host name: %s \n",
+                        session->host_info[session->host_count]->hostname);
+                session->host_count += 1;
+            }
+        }
     }
+    
     fclose(fp);
     count = session->host_count;
-    
+
     /* using count for count and index; hence +1 */
     return count;
 }
@@ -139,6 +141,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "invalid command options \n");
         exit(2);
     }
+
     fprintf(stdout, "instances = %d, hostfile = %s, exec = %s \n", 
             instances, hostfile, executable);
 

@@ -1,12 +1,11 @@
 TOPDIR=$(shell pwd)
 INCDIR=$(TOPDIR)
-INCLUDES= -I$(INCDIR)
+INCLUDES= -I$(INCDIR)/comlink
 CC=gcc
 CFLAGS= -Wall $(INCLUDES)
 LDFLAGS= -lpthread
 
-launcher_src=launcher/job_launcher.c launcher/dispatcher.c \
-	comlink/comlink.c
+launcher_src=launcher/job_launcher.c comlink/comlink.c
 listener_src=listener/listener.c comlink/comlink.c
 
 launcher_objs=$(foreach src,$(launcher_src),$(subst .c,.o,$(src)))
