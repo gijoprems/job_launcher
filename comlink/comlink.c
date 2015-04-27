@@ -61,25 +61,11 @@ static void comlink_server_cleanup(void)
 
 /*****************************************************************************/
 
-static int comlink_server_task(void)
+static int comlink_server_task(int fd)
 {
-    int fd, ret;
-    socklen_t skt_len;
-    struct sockaddr_in skt_addr;
+    int ret;
     char *buf = comlink.params.buffer;
     int buf_len = comlink.params.buf_len;
-    comlink_server_t *cl_server = &comlink.server;
-
-    skt_len = sizeof(sizeof(struct sockaddr_in));
-    fd = accept(cl_server->skt_listen, (struct sockaddr *)&skt_addr,
-            &skt_len);
-
-    /* store the fd for replying later */        
-    cl_server->skt_clients[cl_server->nr_clients] = fd;
-    cl_server->nr_clients += 1;
-
-    fprintf(stdout, "server: new connection from %08x:%05d \n",
-            ntohl(skt_addr.sin_addr.s_addr), ntohs(skt_addr.sin_port));
 
     ret = recv(fd, buf, buf_len, 0);
     if (ret == -1) {
@@ -91,9 +77,9 @@ static int comlink_server_task(void)
     if (ret == 0) {
         fprintf(stderr, "server: peer shotdown, cleaning-up \n");
         if (comlink.params.shutdown_cb != NULL)
-            comlink.params.shutdown_cb();
-            
-        return 0;
+            comlink.params.shutdown_cb(fd);
+
+        return -1;
     }
 
     /* normal operation, data received; pas it to the callback */
@@ -161,8 +147,26 @@ int comlink_server_setup(comlink_params_t *cl_params)
 
 int comlink_server_start(void)
 {
+    int fd;
+    socklen_t skt_len;
+    struct sockaddr_in skt_addr;
+    comlink_server_t *cl_server = &comlink.server;
+    
+    skt_len = sizeof(sizeof(struct sockaddr_in));
+    fd = accept(cl_server->skt_listen, (struct sockaddr *)&skt_addr,
+            &skt_len);
+
+    /* store the fd for replying later */        
+    cl_server->skt_clients[cl_server->nr_clients] = fd;
+    cl_server->nr_clients += 1;
+
+    fprintf(stdout, "server: new connection from %08x:%05d \n",
+            ntohl(skt_addr.sin_addr.s_addr), ntohs(skt_addr.sin_port));
+
+
     while(comlink.comlink_break == 0) {
-        comlink_server_task();
+        if (comlink_server_task(fd) == -1)
+            break;
         usleep(200 * 1000); /*200ms polling period */
     }
 
@@ -175,9 +179,6 @@ int comlink_server_shutdown(void)
 {
     fprintf(stdout, "server: shutdown, cleaning-up \n");
     if (comlink.comlink_break == 0) {
-        if (comlink.params.shutdown_cb != NULL)
-            comlink.params.shutdown_cb();
-            
         comlink.comlink_break = 1;
         comlink_server_cleanup();
     }

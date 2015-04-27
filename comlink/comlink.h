@@ -25,7 +25,7 @@ typedef struct comlink_params_s {
     int init_done; /* To avoid multiple init of comlink */
         
     void (*receive_cb)(int connection, char *buf, int len);
-    void (*shutdown_cb)(void);
+    void (*shutdown_cb)(int fd);
 }comlink_params_t;
 
 /*****************************************************************************/
@@ -63,9 +63,12 @@ typedef struct comlink_s {
 
 int comlink_server_setup(comlink_params_t *cl_params);
 int comlink_server_start(void);
+int comlink_server_shutdown(void);
 
 int comlink_client_setup(comlink_params_t *cl_params);
 int comlink_client_start(void);
+int comlink_client_shutdown(void);
+int comlink_sendto_server(int con_index, char *buf, int buf_len);
 
 int hostname_to_netaddr(char *hostname, struct sockaddr *addr);
 

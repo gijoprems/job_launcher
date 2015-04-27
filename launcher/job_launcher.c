@@ -114,20 +114,18 @@ static int parse_hostfile(char *file)
         exit(2);
     }
 
+    memset(buffer, '\n', MAX_HOSTNAME_LEN);
     session->host_count = 0;
-    while(!feof(fp)) {
-        memset(buffer, '\n', MAX_HOSTNAME_LEN);
-        if (fgets(buffer, MAX_HOSTNAME_LEN, fp) != NULL) {
-	    status = alloc_host_entry(session, session->host_count);
-
-	    if (status == 0) {
-	        count = session->host_count;
-	        strcpy(session->host_info[count]->hostname, buffer);
-                fprintf(stdout, "launcher: host name: %s \n",
-                        session->host_info[session->host_count]->hostname);
-                session->host_count += 1;
-            }
+    while(fgets(buffer, MAX_HOSTNAME_LEN, fp) != NULL) {
+	status = alloc_host_entry(session, session->host_count);
+	if (status == 0) {
+	    count = session->host_count;
+	    strcpy(session->host_info[count]->hostname, buffer);
+            fprintf(stdout, "launcher: host name: %s \n",
+                    session->host_info[session->host_count]->hostname);
+            session->host_count += 1;
         }
+        memset(buffer, '\n', MAX_HOSTNAME_LEN);
     }
 
     fclose(fp);
@@ -186,7 +184,14 @@ static int launcher_session_setup(launcher_session_t *session)
 
 static int launcher_session_start(launcher_session_t *session)
 {
-    
+    int i, len;
+    char *msg = session->exe_name;
+
+    len = strlen(msg);
+    for(i = 0; i < session->host_count; i++) {
+        printf("host(%d) = %s \n", i, session->host_info[i]->hostname);
+        printf("sent %d bytes \n", comlink_sendto_server(i, msg, len));
+    }
 
     return 0;
 }
@@ -199,6 +204,8 @@ static void launcher_session_cleanup(launcher_session_t *session)
       if (session->host_info[session->host_count])
 	  free(session->host_info[session->host_count]);
     }
+
+    comlink_client_shutdown();
 }
 
 /*****************************************************************************/

@@ -36,9 +36,11 @@ static void listener_rxmsg_callback(int fd, char *buf, int len)
 
 /*****************************************************************************/
 
-static void listener_shutdown_callback(void)
+static void listener_shutdown_callback(int fd)
 {
     fprintf(stdout, "listener: peer shutdown \n");
+    if (fd != -1)
+        close(fd);
 }
 
 /*****************************************************************************/
@@ -78,7 +80,7 @@ static int listener_session_start(listener_session_t *session)
 
 static void listener_session_cleanup(listener_session_t *session)
 {
-
+    comlink_server_shutdown();
 }
 
 /*****************************************************************************/
