@@ -23,15 +23,18 @@
 #include <sys/socket.h>
 
 #include "job_launcher.h"
-#include "comlink.h"
 
 /*****************************************************************************/
 
 #define MAX_CMD_ARGS  (6)
 #define MAX_INSTANCES (100)
 
+#define COMLINK_PORT     (25000)
+#define COMLINK_BUF_SIZE (1024)
+
 /*****************************************************************************/
 
+static char comlink_buf[COMLINK_BUF_SIZE];
 static launcher_session_t launcher_session;
 
 /*****************************************************************************/
@@ -39,22 +42,55 @@ static launcher_session_t launcher_session;
 static int usage(char *program)
 {
     fprintf(stderr, "\n%s: -np <instances> -hostfile <hostfile>"
-            " <path-to-executable> \n", program);
+            " <exe-name including path> \n", program);
+
+    return 0;
+}
+
+/*****************************************************************************/
+/* cmdline parser */
+
+static int parse_cmdline(int argc, char *argv[],
+        launcher_session_t *session)
+{
+    if (argc < MAX_CMD_ARGS) {
+        usage(argv[0]);
+        return -1;
+    }
+
+    /* TODO: use getopt instead */
+    
+    if (strncmp(argv[1], "-np", 3) == 0)
+        session->instances = atoi(argv[2]); 
+
+    if (strncmp(argv[3], "-hostfile", 9) == 0)
+        strcpy(session->host_file, argv[4]);
+
+    strcpy(session->exe_name, argv[5]);
+    /* validate the options */
+    if ((session->instances < 0 &&
+            session->instances > MAX_INSTANCES) ||
+            strncmp(session->host_file, "", 1) == 0 || 
+            strncmp(session->exe_name, "", 1) == 0) {      
+        return -1;
+    }
+
+    fprintf(stdout, "launcher: instances = %d, hostfile = %s, exec = %s \n", 
+            session->instances, session->host_file, session->exe_name);
 
     return 0;
 }
 
 /*****************************************************************************/
 
-int alloc_host_entry(launcher_session_t *session, int host_index)
+static int alloc_host_entry(launcher_session_t *session, int host_index)
 {
     int k;
 
     k = sizeof(host_info_t);
-    session->host_info[host_index] = (host_info_t *)malloc(k);
-    
+    session->host_info[host_index] = (host_info_t *)malloc(k);    
     if (session->host_info[host_index] == NULL) {
-        fprintf(stderr, "error allocating session, %s(%d) \n",
+        fprintf(stderr, "launcher: error allocating session, %s(%d) \n",
 	        strerror(errno), errno);
         return -1;  
     }
@@ -63,18 +99,8 @@ int alloc_host_entry(launcher_session_t *session, int host_index)
 } 
 
 /*****************************************************************************/
+/* get the hostnames and returns the number of hosts */
 
-void cleanup_session(launcher_session_t *session)
-{
-    while(session->host_count--) {
-      if (session->host_info[session->host_count])
-	  free(session->host_info[session->host_count]);
-    }
-}
-
-/*****************************************************************************/
-
-/* returns the number of hosts */
 static int parse_hostfile(char *file)
 {
     int count = 0, status = 0; 
@@ -83,7 +109,7 @@ static int parse_hostfile(char *file)
     launcher_session_t *session = &launcher_session;
     
     if ((fp = fopen(file, "rb")) == NULL) {
-        fprintf(stderr, "error opening hostfile %s: %s(%d) \n", 
+        fprintf(stderr, "launcher: error opening hostfile %s: %s(%d) \n", 
                 file, strerror(errno), errno);	
         exit(2);
     }
@@ -91,20 +117,19 @@ static int parse_hostfile(char *file)
     session->host_count = 0;
     while(!feof(fp)) {
         memset(buffer, '\n', MAX_HOSTNAME_LEN);
-	
         if (fgets(buffer, MAX_HOSTNAME_LEN, fp) != NULL) {
 	    status = alloc_host_entry(session, session->host_count);
-	    
+
 	    if (status == 0) {
 	        count = session->host_count;
 	        strcpy(session->host_info[count]->hostname, buffer);
-                printf("host name: %s \n",
+                fprintf(stdout, "launcher: host name: %s \n",
                         session->host_info[session->host_count]->hostname);
                 session->host_count += 1;
             }
         }
     }
-    
+
     fclose(fp);
     count = session->host_count;
 
@@ -114,44 +139,96 @@ static int parse_hostfile(char *file)
 
 /*****************************************************************************/
 
+static void launcher_rxmsg_callback(int fd, char *buf, int len)
+{
+    fprintf(stdout, "launcher: rxdata = %s \n", buf);
+}
+
+/*****************************************************************************/
+
+/* launcher session setup is essentially setting up comlink */
+
+static int launcher_session_setup(launcher_session_t *session)
+{
+    int fd, i;
+    struct sockaddr skt_addr;
+    struct sockaddr_in *remote_addr;
+    
+    comlink_params_t *cl_params = &session->cl_params;
+
+    memset(cl_params, 0, sizeof(comlink_params_t));
+    cl_params->buffer = comlink_buf;
+    cl_params->buf_len = COMLINK_BUF_SIZE;
+    cl_params->local_port = COMLINK_PORT;
+    cl_params->remote_port = COMLINK_PORT;
+    cl_params->receive_cb = launcher_rxmsg_callback;
+    cl_params->shutdown_cb = NULL;
+
+    for(i = 0; i < session->host_count; i++) {
+        if (hostname_to_netaddr(session->host_info[i]->hostname,
+                &skt_addr) != 0)
+            continue;    
+
+        remote_addr = (struct sockaddr_in *)&skt_addr;
+        cl_params->remote_ip = ntohl(remote_addr->sin_addr.s_addr);
+        fd = comlink_client_setup(cl_params);
+        session->skt_conns[i] = fd;
+        if (fd == -1)
+            fprintf(stderr, "launcher: comlink client setup failed for ip %08x \n",
+                    cl_params->remote_ip);
+    }
+    
+    return 0;
+}
+
+/*****************************************************************************/
+/* main handler for the launcher */
+
+static int launcher_session_start(launcher_session_t *session)
+{
+    
+
+    return 0;
+}
+
+/*****************************************************************************/
+
+static void launcher_session_cleanup(launcher_session_t *session)
+{
+    while(session->host_count--) {
+      if (session->host_info[session->host_count])
+	  free(session->host_info[session->host_count]);
+    }
+}
+
+/*****************************************************************************/
+
 int main(int argc, char *argv[])
 {
-    char hostfile[256];
-    char executable[256];
-    int instances = 0;
     launcher_session_t *session = &launcher_session;
      
     /* simple cmdline parser; use getopt instead */
-    if (argc < MAX_CMD_ARGS) {
-        usage(argv[0]);
-        exit(2);
-    }
-
-    if (strncmp(argv[1], "-np", 3) == 0)
-        instances = atoi(argv[2]); 
-
-    if (strncmp(argv[3], "-hostfile", 9) == 0)
-        strcpy(hostfile, argv[4]);
-
-    strcpy(executable, argv[5]);
-    
-    if ((instances < 0 && instances > MAX_INSTANCES) ||
-            strncmp(hostfile, "", 1) == 0 || 
-            strncmp(executable, "", 1) == 0) {      
+    if (parse_cmdline(argc, argv, session) == -1) {
         fprintf(stderr, "invalid command options \n");
         exit(2);
     }
 
-    fprintf(stdout, "instances = %d, hostfile = %s, exec = %s \n", 
-            instances, hostfile, executable);
-
     /* reads hostfile returns the number of hosts */
-    if (parse_hostfile(hostfile) <= 0) {
+    if (parse_hostfile(session->host_file) <= 0) {
         fprintf(stderr, "no hosts found in the hostfile \n");
         exit(2);
     }
 
-    cleanup_session(session);
+    /* session setup */
+    if (launcher_session_setup(session) != 0)
+        exit(2);
+
+    /* starts the remote execution; waits until done */
+    launcher_session_start(session);
+
+    /* done with the session; cleans-up */
+    launcher_session_cleanup(session);
+    
     return 0;
 }
 

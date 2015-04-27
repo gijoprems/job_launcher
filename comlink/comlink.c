@@ -28,17 +28,18 @@ static int comlink_server_init(comlink_params_t *cl_params)
     int i;
     comlink_server_t *cl_server = &comlink.server;
 
+    if (cl_params->init_done)
+        return 0;
+
     cl_server->skt_listen = -1;
     cl_server->nr_clients = 0;
 
     for(i = 0; i < MAX_CONNECTIONS; i++)
         cl_server->skt_clients[i] = -1;
 
-    if (cl_params->receive_cb == NULL)
-        return -1;
-
     comlink.params = *cl_params;
-
+    cl_params->init_done = 1;
+    
     return 0;
 }
 
@@ -89,12 +90,15 @@ static int comlink_server_task(void)
 
     if (ret == 0) {
         fprintf(stderr, "server: peer shotdown, cleaning-up \n");
-        comlink.params.shutdown_cb();
+        if (comlink.params.shutdown_cb != NULL)
+            comlink.params.shutdown_cb();
+            
         return 0;
     }
 
     /* normal operation, data received; pas it to the callback */
-    comlink.params.receive_cb(fd, buf, buf_len);
+    if (comlink.params.receive_cb != NULL)
+        comlink.params.receive_cb(fd, buf, buf_len);
 
     return 0;
 }
@@ -117,7 +121,7 @@ int comlink_server_setup(comlink_params_t *cl_params)
     if (fd == -1) {
         fprintf(stderr, "server: error opening listener socket, %s(%d) \n",
                 strerror(errno), errno);
-        exit(2);
+        return -1;
     }
 
     cl_server->skt_listen = fd;
@@ -126,7 +130,7 @@ int comlink_server_setup(comlink_params_t *cl_params)
         fprintf(stderr, "server: error in setsockopt, %s(%d) \n",
                 strerror(errno), errno);
         comlink_server_cleanup();
-        exit(2);
+        return -1;
     }
 
     memset(&skt_addr, 0, sizeof(struct sockaddr_in));
@@ -138,14 +142,14 @@ int comlink_server_setup(comlink_params_t *cl_params)
         fprintf(stderr, "server: bind error, %s(%d) \n",
                 strerror(errno), errno);
         comlink_server_cleanup();
-        exit(2);
+        return -1;
     }
 
     if (listen(fd, 3) == -1) {
         fprintf(stderr, "server: error in listen, %s(%d) \n",
                 strerror(errno), errno);
         comlink_server_cleanup();
-        exit(2);
+        return -1;
     }
 
     comlink.comlink_break = 0;
@@ -170,11 +174,13 @@ int comlink_server_start(void)
 int comlink_server_shutdown(void)
 {
     fprintf(stdout, "server: shutdown, cleaning-up \n");
-    if (comlink.comlink_break == 0)
-        comlink.params.shutdown_cb();
-
-    comlink.comlink_break = 1;
-    comlink_server_cleanup();
+    if (comlink.comlink_break == 0) {
+        if (comlink.params.shutdown_cb != NULL)
+            comlink.params.shutdown_cb();
+            
+        comlink.comlink_break = 1;
+        comlink_server_cleanup();
+    }
 
     return 0;
 }
@@ -187,15 +193,16 @@ static int comlink_client_init(comlink_params_t *cl_params)
     int i;
     comlink_client_t *cl_client = &comlink.client;
 
+    if (cl_params->init_done)
+        return 0;
+    
     cl_client->nr_conns = 0;
     for(i = 0; i < MAX_CONNECTIONS; i++)
         cl_client->skt_conns[i] = -1;
 
-    if (cl_params->receive_cb == NULL)
-        return -1;
-
     comlink.params = *cl_params;
-
+    cl_params->init_done = 1;
+    
     return 0;
 }
 
@@ -229,7 +236,7 @@ int comlink_client_setup(comlink_params_t *cl_params)
     if (fd == -1) {
         fprintf(stderr, "client: error opening connect socket, %s(%d) \n",
                 strerror(errno), errno);
-        exit(2);
+        return -1;
     }
 
     memset(&skt_addr, 0, sizeof(struct sockaddr_in));
@@ -241,10 +248,10 @@ int comlink_client_setup(comlink_params_t *cl_params)
         fprintf(stderr, "client: connect error, %s(%d) \n",
                 strerror(errno), errno);
         comlink_client_cleanup();
-        exit(2);
+        return -1;
     }
 
-    /* new connection, store it for receiving replies */
+    /* new connection, store it for receiving the replies */
     cl_client->skt_conns[cl_client->nr_conns] = fd;
     cl_client->nr_conns += 1; /* TODO: find a bettwer way for the index */
 
@@ -304,9 +311,7 @@ int hostname_to_netaddr(char *hostname, struct sockaddr *addr)
         return -1;
     }
 
-    if(res != NULL)
-        *addr = *(struct sockaddr *)res->ai_addr;
-
+    *addr = *(struct sockaddr *)res->ai_addr;
     freeaddrinfo(res);
 
     return 0;

@@ -1,7 +1,7 @@
 #ifndef _COMLINK_H_
 #define _COMLINK_H_
 
-#include <pthread.h>
+#include <netinet/in.h>
 
 /*****************************************************************************/
 
@@ -14,12 +14,16 @@ typedef struct comlink_params_s {
     char *buffer;
     int buf_len;
 
+    /* for the server sock initialization */
     unsigned int local_ip;
     unsigned short local_port;
 
+    /* for client side */  
     unsigned int remote_ip;
     unsigned short remote_port;
 
+    int init_done; /* To avoid multiple init of comlink */
+        
     void (*receive_cb)(int connection, char *buf, int len);
     void (*shutdown_cb)(void);
 }comlink_params_t;
@@ -56,5 +60,13 @@ typedef struct comlink_s {
 }comlink_t;
 
 /*****************************************************************************/
+
+int comlink_server_setup(comlink_params_t *cl_params);
+int comlink_server_start(void);
+
+int comlink_client_setup(comlink_params_t *cl_params);
+int comlink_client_start(void);
+
+int hostname_to_netaddr(char *hostname, struct sockaddr *addr);
 
 #endif /* _COMLINK_H_ */
