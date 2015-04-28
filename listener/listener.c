@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -30,18 +31,39 @@ static listener_session_t listener_session;
 
 /*****************************************************************************/
 
-static listener_session_t * get_listener_session()
+static listener_session_t * get_listener_session(void)
 {
     return &listener_session;
 }
 
+/*****************************************************************************/
+/* to handle the ctrl messages like start, break */
+
+static int listener_handle_ctrlmsg(char *buf)
+{
+    /* do normal strcmp; improve later */
+    fprintf(stdout, "listener: ctrl message = %s \n", buf);
+
+    if (strcmp(buf, "start") == 0) {
+        printf("start \n");
+    }
+    else if (strcmp(buf, "break") == 0) {
+        printf("break \n");
+    }
+    else
+        return -1;
+
+    return 0;
+}
+            
 /*****************************************************************************/
 
 static void listener_rxmsg_callback(int fd, unsigned int msg_type,
         char *buf, int len)
 {
     listener_session_t *session = get_listener_session();
-    
+    char temp_buf[256];
+
     switch(msg_type) {
         case PROC_INSTANCES:
             session->instances = *(int *)buf;
@@ -52,9 +74,16 @@ static void listener_rxmsg_callback(int fd, unsigned int msg_type,
             strcpy(session->exe_name, buf);
             fprintf(stdout, "listener: exec name = %s \n", session->exe_name);    
             break;
+
+        case CTRL_MESSAGE:
+            memset(temp_buf, '\n', 256);
+            strcpy(temp_buf, buf);
+            listener_handle_ctrlmsg(buf);
+            break;
             
         default:
-            fprintf(stderr, "listener: unknown msg type, ignoring \n");
+            fprintf(stderr,
+                    "listener: unknown msg type(%d), ignoring \n", msg_type);
     }
 }
 
@@ -62,7 +91,7 @@ static void listener_rxmsg_callback(int fd, unsigned int msg_type,
 
 static void listener_shutdown_callback(int fd)
 {
-    fprintf(stdout, "listener: peer shutdown \n");
+    fprintf(stderr, "server: peer shotdown, cleaning-up \n");
     if (fd != -1)
         close(fd);
 }
@@ -108,15 +137,35 @@ static void listener_session_cleanup(listener_session_t *session)
 }
 
 /*****************************************************************************/
+/* handles SIGINT */
+
+static void listener_signal_handler(int signal)
+{
+    listener_session_t *session = get_listener_session();
+
+    fprintf(stdout, "Ctrl+C, exiting \n");
+    listener_session_cleanup(session);
+}
+
+/*****************************************************************************/
 
 int main(void)
 {
+    struct sigaction sa;
     listener_session_t *session = get_listener_session();
 
     /* session setup */
     if (listener_session_setup(session) != 0)
         exit(2);
 
+    /* regster the signal handler for handing terminal signals */
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = listener_signal_handler;
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        fprintf(stdout,
+                "Warning, session will be unstable \n");
+    }
+        
     /* starts the execution; waits until done */
     listener_session_start(session);
 

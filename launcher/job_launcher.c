@@ -19,6 +19,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -37,6 +38,13 @@
 
 static char comlink_buf[COMLINK_BUF_SIZE];
 static launcher_session_t launcher_session;
+
+/*****************************************************************************/
+
+static launcher_session_t * get_launcher_session()
+{
+    return &launcher_session;
+}
 
 /*****************************************************************************/
 
@@ -107,7 +115,7 @@ static int parse_hostfile(char *file)
     int count = 0, status = 0; 
     FILE *fp = NULL;
     char buffer[MAX_HOSTNAME_LEN];
-    launcher_session_t *session = &launcher_session;
+    launcher_session_t *session = get_launcher_session();
     
     if ((fp = fopen(file, "rb")) == NULL) {
         fprintf(stderr, "launcher: error opening hostfile %s: %s(%d) \n", 
@@ -196,23 +204,27 @@ static void fill_header(comlink_header_t *msg, int type, int len)
 
 static int launcher_session_start(launcher_session_t *session)
 {
+    int ret;
     int i, len;
-    comlink_header_t msg;
+    comlink_header_t header;
 
     for(i = 0; i < session->host_count; i++) {
-        printf("host(%d) = %s \n", i, session->host_info[i]->hostname);
+        fprintf(stdout, "host(%d) = %s \n",
+                i, session->host_info[i]->hostname);
         
         len = sizeof(session->instances);
-        fill_header(&msg, PROC_INSTANCES, len);
-        printf("sent %d bytes \n",
-                comlink_sendto_server(i, &msg, (char *)&session->instances, len));
+        fill_header(&header, PROC_INSTANCES, len);
+        ret = comlink_sendto_server(i, &header, (char *)&session->instances, len);
 
         len = strlen(session->exe_name);
-        fill_header(&msg, EXEC_FILENAME, len);
-        printf("sent %d bytes \n",
-                comlink_sendto_server(i, &msg, session->exe_name, len));
+        fill_header(&header, EXEC_FILENAME, len);
+        ret = comlink_sendto_server(i, &header, session->exe_name, len);
     }
 
+    (void)ret;
+    /* start the client process to wait for reply messages */
+    //here
+    
     return 0;
 }
 
@@ -230,9 +242,41 @@ static void launcher_session_cleanup(launcher_session_t *session)
 
 /*****************************************************************************/
 
+static int launcher_send_ctrlmsg(char *msg, launcher_session_t *session)
+{
+    int ret;
+    int i, len;
+    comlink_header_t header;
+    
+    for(i = 0; i < session->host_count; i++) {
+        fprintf(stdout, "host(%d) = %s \n",
+                i, session->host_info[i]->hostname);
+        
+        len = sizeof(msg);
+        fill_header(&header, CTRL_MESSAGE, len);
+        ret = comlink_sendto_server(i, &header, msg, len);
+    }
+    
+    return ret;
+}
+
+/*****************************************************************************/
+/* handles SIGINT */
+
+static void launcher_signal_handler(int signal)
+{
+    launcher_session_t *session = get_launcher_session();
+
+    fprintf(stdout, "Ctrl+C, exiting \n");
+    launcher_send_ctrlmsg("stop", session);
+}
+
+/*****************************************************************************/
+
 int main(int argc, char *argv[])
 {
-    launcher_session_t *session = &launcher_session;
+    struct sigaction sa;
+    launcher_session_t *session = get_launcher_session();
      
     /* simple cmdline parser; use getopt instead */
     if (parse_cmdline(argc, argv, session) == -1) {
@@ -250,6 +294,14 @@ int main(int argc, char *argv[])
     if (launcher_session_setup(session) != 0)
         exit(2);
 
+    /* regster the signal handler for handing terminal signals */
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = launcher_signal_handler;
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        fprintf(stdout,
+                "Warning, session will be unstable \n");
+    }
+    
     /* starts the remote execution; waits until done */
     launcher_session_start(session);
 

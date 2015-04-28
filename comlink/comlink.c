@@ -74,7 +74,6 @@ static int comlink_read_header(int fd, comlink_header_t *header, int len)
     }
 
     if (ret == 0) {
-        fprintf(stderr, "server: peer shotdown, cleaning-up \n");
         if (comlink.params.shutdown_cb != NULL)
             comlink.params.shutdown_cb(fd);
 
@@ -84,9 +83,6 @@ static int comlink_read_header(int fd, comlink_header_t *header, int len)
     header->type = ntohl(header->type);
     header->len = ntohl(header->len);
     
-    fprintf(stdout, "server: header, type = %d, len = %d \n",
-            header->type, header->len);
-
     return header->len;
 }
 
