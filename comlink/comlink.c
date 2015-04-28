@@ -60,14 +60,13 @@ static void comlink_server_cleanup(void)
 }
 
 /*****************************************************************************/
+/* returns the length for subsequent read */
 
-static int comlink_server_task(int fd)
+static int comlink_read_header(int fd, comlink_header_t *header, int len)
 {
     int ret;
-    char *buf = comlink.params.buffer;
-    int buf_len = comlink.params.buf_len;
-
-    ret = recv(fd, buf, buf_len, 0);
+    
+    ret = recv(fd, (char *)header, len, 0);
     if (ret == -1) {
         fprintf(stderr, "server: recv error, %s(%d) \n",
                 strerror(errno), errno);
@@ -82,10 +81,69 @@ static int comlink_server_task(int fd)
         return -1;
     }
 
+    header->type = ntohl(header->type);
+    header->len = ntohl(header->len);
+    
+    fprintf(stdout, "server: header, type = %d, len = %d \n",
+            header->type, header->len);
+
+    return header->len;
+}
+
+/*****************************************************************************/
+/* read the actual comlink data */
+
+static int comlink_read_data(int fd, char *buf, int len)
+{
+    int ret;
+    
+    ret = recv(fd, buf, len, 0);
+    if (ret == -1) {
+        fprintf(stderr, "server: recv error, %s(%d) \n",
+                strerror(errno), errno);
+        return -1;
+    }
+
+    if (ret == 0) {
+        fprintf(stderr, "server: peer shotdown, cleaning-up \n");
+        if (comlink.params.shutdown_cb != NULL)
+            comlink.params.shutdown_cb(fd);
+
+        return -1;
+    }
+
+    
+    return ret;
+}
+
+/*****************************************************************************/
+
+static int comlink_server_task(int fd)
+{
+    int ret = 0;
+    char *buf = comlink.params.buffer;
+    int buf_len = comlink.params.buf_len;
+    comlink_params_t *cl = &comlink.params;
+    comlink_header_t header;
+    
+    if (cl->rx_len == 0) { /* start of a message */
+    /* read header to get type and length */
+        if ((ret = comlink_read_header(fd, &header,
+                sizeof(comlink_header_t))) == -1)
+            return -1;
+
+        /* now we know the len to read */
+        cl->rx_len = ret;
+    }
+
+    comlink_read_data(fd, buf, cl->rx_len);
+
     /* normal operation, data received; pas it to the callback */
     if (comlink.params.receive_cb != NULL)
-        comlink.params.receive_cb(fd, buf, buf_len);
+        comlink.params.receive_cb(fd, header.type, buf, buf_len);
 
+    cl->rx_len = 0;    
+    
     return 0;
 }
 
@@ -280,9 +338,11 @@ int comlink_client_shutdown(void)
 
 /*****************************************************************************/
 
-int comlink_sendto_server(int con_index, char *buf, int buf_len)
+int comlink_sendto_server(int con_index, comlink_header_t *hdr,
+        char *buf, int buf_len)
 {
     int ret = 0;
+    comlink_header_t header;
     comlink_client_t *cl = &comlink.client;
 
     if (con_index > cl->nr_conns) {
@@ -290,6 +350,20 @@ int comlink_sendto_server(int con_index, char *buf, int buf_len)
         return -1;
     }
 
+    fprintf(stdout, "client: type = %d, len = %d, fulllen = %d \n",
+            hdr->type, hdr->len, buf_len);
+    
+    header.type = ntohl(hdr->type);
+    header.len = ntohl(hdr->len);
+    
+    ret = send(cl->skt_conns[con_index], (void *)&header,
+            sizeof(comlink_header_t), 0);
+    if (ret == -1) {
+        fprintf(stderr, "client: send failed %s(%d) \n",
+                strerror(errno), errno);
+        return -1;
+    }
+    
     ret = send(cl->skt_conns[con_index], buf, buf_len, 0);
     if (ret != buf_len) {
         fprintf(stderr, "client: send failed %s(%d) \n",

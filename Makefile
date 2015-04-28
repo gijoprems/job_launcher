@@ -1,6 +1,7 @@
 TOPDIR=$(shell pwd)
 INCDIR=$(TOPDIR)
 INCLUDES= -I$(INCDIR)/comlink
+INCLUDES+= -I$(INCDIR)/common
 CC=gcc
 CFLAGS= -Wall $(INCLUDES)
 LDFLAGS= -lpthread

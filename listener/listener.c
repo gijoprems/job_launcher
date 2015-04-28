@@ -16,6 +16,7 @@
 #include <netdb.h>
 
 #include "listener.h"
+#include "common.h"
 
 /*****************************************************************************/
 
@@ -29,9 +30,32 @@ static listener_session_t listener_session;
 
 /*****************************************************************************/
 
-static void listener_rxmsg_callback(int fd, char *buf, int len)
+static listener_session_t * get_listener_session()
 {
-    fprintf(stdout, "listener: rxdata = %s \n", buf);
+    return &listener_session;
+}
+
+/*****************************************************************************/
+
+static void listener_rxmsg_callback(int fd, unsigned int msg_type,
+        char *buf, int len)
+{
+    listener_session_t *session = get_listener_session();
+    
+    switch(msg_type) {
+        case PROC_INSTANCES:
+            session->instances = *(int *)buf;
+            fprintf(stdout, "listener: instances = %d \n", session->instances);    
+            break;
+            
+        case EXEC_FILENAME:
+            strcpy(session->exe_name, buf);
+            fprintf(stdout, "listener: exec name = %s \n", session->exe_name);    
+            break;
+            
+        default:
+            fprintf(stderr, "listener: unknown msg type, ignoring \n");
+    }
 }
 
 /*****************************************************************************/
@@ -87,7 +111,7 @@ static void listener_session_cleanup(listener_session_t *session)
 
 int main(void)
 {
-    listener_session_t *session = &listener_session;
+    listener_session_t *session = get_listener_session();
 
     /* session setup */
     if (listener_session_setup(session) != 0)

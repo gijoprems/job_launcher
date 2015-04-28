@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 
 #include "job_launcher.h"
+#include "common.h"
 
 /*****************************************************************************/
 
@@ -137,7 +138,8 @@ static int parse_hostfile(char *file)
 
 /*****************************************************************************/
 
-static void launcher_rxmsg_callback(int fd, char *buf, int len)
+static void launcher_rxmsg_callback(int fd, unsigned int msg_type,
+        char *buf, int len)
 {
     fprintf(stdout, "launcher: rxdata = %s \n", buf);
 }
@@ -180,17 +182,35 @@ static int launcher_session_setup(launcher_session_t *session)
 }
 
 /*****************************************************************************/
+/* fill msg header */
+
+static void fill_header(comlink_header_t *msg, int type, int len)
+{
+    memset(msg, 0, sizeof(comlink_header_t));
+    msg->type = type;
+    msg->len = len;
+}
+
+/*****************************************************************************/
 /* main handler for the launcher */
 
 static int launcher_session_start(launcher_session_t *session)
 {
     int i, len;
-    char *msg = session->exe_name;
+    comlink_header_t msg;
 
-    len = strlen(msg);
     for(i = 0; i < session->host_count; i++) {
         printf("host(%d) = %s \n", i, session->host_info[i]->hostname);
-        printf("sent %d bytes \n", comlink_sendto_server(i, msg, len));
+        
+        len = sizeof(session->instances);
+        fill_header(&msg, PROC_INSTANCES, len);
+        printf("sent %d bytes \n",
+                comlink_sendto_server(i, &msg, (char *)&session->instances, len));
+
+        len = strlen(session->exe_name);
+        fill_header(&msg, EXEC_FILENAME, len);
+        printf("sent %d bytes \n",
+                comlink_sendto_server(i, &msg, session->exe_name, len));
     }
 
     return 0;
