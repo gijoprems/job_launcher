@@ -1,10 +1,12 @@
 #ifndef _LISTENER_H_
 #define _LISTENER_H_
 
+#include <pthread.h>
 #include "comlink.h"
 
 /*****************************************************************************/
 
+#define MAX_INSTANCES    (100)
 #define MAX_FILENAME_LEN (256)
 
 /*****************************************************************************/
@@ -17,6 +19,11 @@ typedef struct listener_session_s {
     /* host info */
     int instances;
     char exe_name[MAX_FILENAME_LEN];
+
+    /* for managing the proc spawn thread */
+    int spawn_task_stop;
+    pthread_t spawn_task;
+    pthread_attr_t spawn_task_attr;
 }listener_session_t;
 
 /*****************************************************************************/

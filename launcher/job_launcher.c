@@ -200,47 +200,7 @@ static void fill_header(comlink_header_t *msg, int type, int len)
 }
 
 /*****************************************************************************/
-/* main handler for the launcher */
-
-static int launcher_session_start(launcher_session_t *session)
-{
-    int ret;
-    int i, len;
-    comlink_header_t header;
-
-    for(i = 0; i < session->host_count; i++) {
-        fprintf(stdout, "host(%d) = %s \n",
-                i, session->host_info[i]->hostname);
-        
-        len = sizeof(session->instances);
-        fill_header(&header, PROC_INSTANCES, len);
-        ret = comlink_sendto_server(i, &header, (char *)&session->instances, len);
-
-        len = strlen(session->exe_name);
-        fill_header(&header, EXEC_FILENAME, len);
-        ret = comlink_sendto_server(i, &header, session->exe_name, len);
-    }
-
-    (void)ret;
-    /* start the client process to wait for reply messages */
-    //here
-    
-    return 0;
-}
-
-/*****************************************************************************/
-
-static void launcher_session_cleanup(launcher_session_t *session)
-{
-    while(session->host_count--) {
-      if (session->host_info[session->host_count])
-	  free(session->host_info[session->host_count]);
-    }
-
-    comlink_client_shutdown();
-}
-
-/*****************************************************************************/
+/* main handlers for the launcher */
 
 static int launcher_send_ctrlmsg(char *msg, launcher_session_t *session)
 {
@@ -258,6 +218,50 @@ static int launcher_send_ctrlmsg(char *msg, launcher_session_t *session)
     }
     
     return ret;
+}
+
+/*****************************************************************************/
+
+static int launcher_session_start(launcher_session_t *session)
+{
+    int ret = 0;
+    int i, len;
+    comlink_header_t header;
+
+    for(i = 0; i < session->host_count; i++) {
+        fprintf(stdout, "host(%d) = %s \n",
+                i, session->host_info[i]->hostname);
+        
+        len = sizeof(session->instances);
+        fill_header(&header, PROC_INSTANCES, len);
+        ret = comlink_sendto_server(i, &header, (char *)&session->instances, len);
+
+        len = strlen(session->exe_name);
+        fill_header(&header, EXEC_FILENAME, len);
+        ret = comlink_sendto_server(i, &header, session->exe_name, len);
+
+        if (launcher_send_ctrlmsg("start", session) == -1) {
+            fprintf(stderr, "launcher: failed to send start cmd \n");
+            ret = -1;
+        }
+    }
+
+    /* start the client process to wait for reply messages */
+    //here
+    
+    return ret;
+}
+
+/*****************************************************************************/
+
+static void launcher_session_cleanup(launcher_session_t *session)
+{
+    while(session->host_count--) {
+      if (session->host_info[session->host_count])
+	  free(session->host_info[session->host_count]);
+    }
+
+    comlink_client_shutdown();
 }
 
 /*****************************************************************************/

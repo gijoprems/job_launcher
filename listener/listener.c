@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <netdb.h>
 
 #include "listener.h"
@@ -37,25 +38,81 @@ static listener_session_t * get_listener_session(void)
 }
 
 /*****************************************************************************/
+
+void * spawn_task_main(void *arg)
+{
+    int i, status;
+    pid_t spawned[MAX_INSTANCES], wpid;
+    listener_session_t *session = (listener_session_t *)arg;
+    char *argv[2] = { session->exe_name };
+
+    while(!session->spawn_task_stop) {
+        for (i = 0; i < session->instances; i++) {
+            spawned[i] = fork();
+            if (spawned[i] == 0) {
+                execvp(argv[0], argv);
+            }
+        }
+
+        while ((wpid = wait(&status)) > 0)
+            printf("termination status of %d = %d \n",
+                    (int)wpid, status);
+    }
+    
+    return NULL;
+}
+
+/*****************************************************************************/
+
+static int spawn_task_setup(void)
+{
+    int ret;
+    listener_session_t *session = get_listener_session();
+
+    session->spawn_task_stop = 0;
+    ret = pthread_attr_init(&session->spawn_task_attr);
+    if(ret != 0) {
+        fprintf(stderr,"listener: ptherad attr_init, %s(%d) \n",
+                strerror(errno), errno);
+        return -1;
+    }
+
+    ret = pthread_create(&session->spawn_task,
+            &session->spawn_task_attr, spawn_task_main, (void *)session);
+    if (ret != 0) {
+        fprintf(stderr,"listener: ptherad create, %s(%d) \n",
+                strerror(errno), errno);
+        return -1;
+    }
+
+    return 0;
+}
+
+/*****************************************************************************/
 /* to handle the ctrl messages like start, break */
 
-static int listener_handle_ctrlmsg(char *buf)
+static int listener_handle_ctrlmsg(char *buf, listener_session_t *s)
 {
+    int ret = 0;
+    
     /* do normal strcmp; improve later */
     fprintf(stdout, "listener: ctrl message = %s \n", buf);
 
     if (strcmp(buf, "start") == 0) {
         printf("start \n");
+        ret = spawn_task_setup();
     }
     else if (strcmp(buf, "break") == 0) {
         printf("break \n");
+        s->spawn_task_stop = 1;
+        ret = 0;
     }
     else
         return -1;
 
-    return 0;
+    return ret;
 }
-            
+
 /*****************************************************************************/
 
 static void listener_rxmsg_callback(int fd, unsigned int msg_type,
@@ -78,7 +135,7 @@ static void listener_rxmsg_callback(int fd, unsigned int msg_type,
         case CTRL_MESSAGE:
             memset(temp_buf, '\n', 256);
             strcpy(temp_buf, buf);
-            listener_handle_ctrlmsg(buf);
+            listener_handle_ctrlmsg(buf, session);
             break;
             
         default:
