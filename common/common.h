@@ -8,7 +8,8 @@
 enum {
     PROC_INSTANCES = 100,
     EXEC_FILENAME,
-    CTRL_MESSAGE
+    CTRL_MESSAGE,
+    STATUS_MESSAGE
 };
 
 /*****************************************************************************/

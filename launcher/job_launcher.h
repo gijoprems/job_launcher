@@ -33,6 +33,10 @@ typedef struct lanucher_session_s {
     host_info_t *host_info[MAX_HOSTS];
     char exe_name[MAX_FILENAME_LEN];
     char host_file[MAX_FILENAME_LEN];
+
+    /* remote status info */
+    int nr_active;
+    int nr_ackd;
 }launcher_session_t;
 
 /******************************************************************/

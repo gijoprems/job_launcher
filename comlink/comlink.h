@@ -24,8 +24,9 @@ typedef struct comlink_params_s {
     unsigned short remote_port;
 
     int init_done; /* To avoid multiple init of comlink */
-        
-    void (*receive_cb)(int fd, unsigned int type, char *buf, int len);
+    
+    void (*receive_cb)(int fd, struct sockaddr_in *addr,
+            unsigned int type, char *buf, int len);
     void (*shutdown_cb)(int fd);
 }comlink_params_t;
 
@@ -46,6 +47,11 @@ typedef struct comlink_server_s {
 typedef struct comlink_client_s {
     int nr_conns;
     int skt_conns[MAX_CONNECTIONS]; /* connections */
+
+    /* for select */
+    int max_fds;
+    fd_set rd_fds;
+    fd_set t_fds;
 }comlink_client_t;
 
 /*****************************************************************************/
@@ -79,6 +85,8 @@ int comlink_client_start(void);
 int comlink_client_shutdown(void);
 int comlink_sendto_server(int con_index, comlink_header_t *header,
         char *buf, int buf_len);
+void comlink_client_close(int fd);
+
 int hostname_to_netaddr(char *hostname, struct sockaddr *addr);
 
 #endif /* _COMLINK_H_ */

@@ -1,0 +1,8 @@
+
+Intsructions to run:
+
+    - Do make in job_launcher directory
+    - Copy the listener_stub to all the hosts and execute (./listener_stub)
+    - Create a hostfile with entries of all the hosts (either IP or hostname)
+    - Run: ./job_launcher -np <num_instances> -hostfile <path_to_host_file> <path_to_executable>
+    

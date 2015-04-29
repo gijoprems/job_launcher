@@ -48,10 +48,22 @@ static launcher_session_t * get_launcher_session()
 
 /*****************************************************************************/
 
+static void launcher_session_cleanup(launcher_session_t *session)
+{
+    while(session->host_count--) {
+      if (session->host_info[session->host_count])
+	  free(session->host_info[session->host_count]);
+    }
+
+    comlink_client_shutdown();
+}
+
+/*****************************************************************************/
+
 static int usage(char *program)
 {
     fprintf(stderr, "\n%s: -np <instances> -hostfile <hostfile>"
-            " <exe-name including path> \n", program);
+        " <exe-name including path> \n", program);
 
     return 0;
 }
@@ -85,7 +97,7 @@ static int parse_cmdline(int argc, char *argv[],
     }
 
     fprintf(stdout, "launcher: instances = %d, hostfile = %s, exec = %s \n", 
-            session->instances, session->host_file, session->exe_name);
+        session->instances, session->host_file, session->exe_name);
 
     return 0;
 }
@@ -100,7 +112,7 @@ static int alloc_host_entry(launcher_session_t *session, int host_index)
     session->host_info[host_index] = (host_info_t *)malloc(k);    
     if (session->host_info[host_index] == NULL) {
         fprintf(stderr, "launcher: error allocating session, %s(%d) \n",
-	        strerror(errno), errno);
+	    strerror(errno), errno);
         return -1;  
     }
 
@@ -112,26 +124,29 @@ static int alloc_host_entry(launcher_session_t *session, int host_index)
 
 static int parse_hostfile(char *file)
 {
-    int count = 0, status = 0; 
+    int count;
+    int status; 
     FILE *fp = NULL;
     char buffer[MAX_HOSTNAME_LEN];
+    
     launcher_session_t *session = get_launcher_session();
     
     if ((fp = fopen(file, "rb")) == NULL) {
         fprintf(stderr, "launcher: error opening hostfile %s: %s(%d) \n", 
-                file, strerror(errno), errno);	
+            file, strerror(errno), errno);	
         exit(2);
     }
 
     memset(buffer, '\n', MAX_HOSTNAME_LEN);
     session->host_count = 0;
+    
     while(fgets(buffer, MAX_HOSTNAME_LEN, fp) != NULL) {
 	status = alloc_host_entry(session, session->host_count);
 	if (status == 0) {
 	    count = session->host_count;
 	    strcpy(session->host_info[count]->hostname, buffer);
             fprintf(stdout, "launcher: host name: %s \n",
-                    session->host_info[session->host_count]->hostname);
+                session->host_info[session->host_count]->hostname);
             session->host_count += 1;
         }
         memset(buffer, '\n', MAX_HOSTNAME_LEN);
@@ -146,23 +161,44 @@ static int parse_hostfile(char *file)
 
 /*****************************************************************************/
 
-static void launcher_rxmsg_callback(int fd, unsigned int msg_type,
-        char *buf, int len)
+static void launcher_rxmsg_callback(int fd, struct sockaddr_in *addr,
+        unsigned int msg_type, char *buf, int len)
 {
-    fprintf(stdout, "launcher: rxdata = %s \n", buf);
+    launcher_session_t *s = get_launcher_session();
+    
+    fprintf(stdout, "launcher: rxdata = %s, active = %d, ackd = %d \n",
+        buf, s->nr_active, s->nr_ackd);
+
+    s->nr_ackd += 1; /* FIX, this is a bug */    
+    if (s->nr_active <= s->nr_ackd) {
+        fprintf(stdout, "launcher: recvd ack from all \n");
+        launcher_session_cleanup(s);
+    }
 }
 
 /*****************************************************************************/
 
+static void launcher_shutdown_callback(int fd)
+{
+    fprintf(stderr, "launcher: peer shotdown, cleaning-up \n");
+    if (fd > 0)
+        comlink_client_close(fd);
+}
+
+/*****************************************************************************/
 /* launcher session setup is essentially setting up comlink */
 
 static int launcher_session_setup(launcher_session_t *session)
 {
-    int fd, i;
+    int fd;
+    int i;
     struct sockaddr skt_addr;
     struct sockaddr_in *remote_addr;
     
     comlink_params_t *cl_params = &session->cl_params;
+
+    session->nr_ackd = 0;
+    session->nr_active = 0;
 
     memset(cl_params, 0, sizeof(comlink_params_t));
     cl_params->buffer = comlink_buf;
@@ -170,8 +206,8 @@ static int launcher_session_setup(launcher_session_t *session)
     cl_params->local_port = COMLINK_PORT;
     cl_params->remote_port = COMLINK_PORT;
     cl_params->receive_cb = launcher_rxmsg_callback;
-    cl_params->shutdown_cb = NULL;
-
+    cl_params->shutdown_cb = launcher_shutdown_callback;
+    
     for(i = 0; i < session->host_count; i++) {
         if (hostname_to_netaddr(session->host_info[i]->hostname,
                 &skt_addr) != 0)
@@ -183,7 +219,9 @@ static int launcher_session_setup(launcher_session_t *session)
         session->skt_conns[i] = fd;
         if (fd == -1)
             fprintf(stderr, "launcher: comlink client setup failed for ip %08x \n",
-                    cl_params->remote_ip);
+                cl_params->remote_ip);
+        else
+          session->nr_active += 1;
     }
     
     return 0;
@@ -204,13 +242,14 @@ static void fill_header(comlink_header_t *msg, int type, int len)
 
 static int launcher_send_ctrlmsg(char *msg, launcher_session_t *session)
 {
-    int ret;
-    int i, len;
+    int i;
+    int len;
+    int ret = 0;
     comlink_header_t header;
     
     for(i = 0; i < session->host_count; i++) {
         fprintf(stdout, "host(%d) = %s \n",
-                i, session->host_info[i]->hostname);
+            i, session->host_info[i]->hostname);
         
         len = sizeof(msg);
         fill_header(&header, CTRL_MESSAGE, len);
@@ -224,13 +263,14 @@ static int launcher_send_ctrlmsg(char *msg, launcher_session_t *session)
 
 static int launcher_session_start(launcher_session_t *session)
 {
+    int i;
+    int len;
     int ret = 0;
-    int i, len;
     comlink_header_t header;
 
     for(i = 0; i < session->host_count; i++) {
         fprintf(stdout, "host(%d) = %s \n",
-                i, session->host_info[i]->hostname);
+            i, session->host_info[i]->hostname);
         
         len = sizeof(session->instances);
         fill_header(&header, PROC_INSTANCES, len);
@@ -247,21 +287,9 @@ static int launcher_session_start(launcher_session_t *session)
     }
 
     /* start the client process to wait for reply messages */
-    //here
+    comlink_client_start();
     
     return ret;
-}
-
-/*****************************************************************************/
-
-static void launcher_session_cleanup(launcher_session_t *session)
-{
-    while(session->host_count--) {
-      if (session->host_info[session->host_count])
-	  free(session->host_info[session->host_count]);
-    }
-
-    comlink_client_shutdown();
 }
 
 /*****************************************************************************/
@@ -273,6 +301,7 @@ static void launcher_signal_handler(int signal)
 
     fprintf(stdout, "Ctrl+C, exiting \n");
     launcher_send_ctrlmsg("stop", session);
+    launcher_session_cleanup(session);
 }
 
 /*****************************************************************************/
@@ -280,6 +309,7 @@ static void launcher_signal_handler(int signal)
 int main(int argc, char *argv[])
 {
     struct sigaction sa;
+    
     launcher_session_t *session = get_launcher_session();
      
     /* simple cmdline parser; use getopt instead */
@@ -303,7 +333,7 @@ int main(int argc, char *argv[])
     sa.sa_handler = launcher_signal_handler;
     if (sigaction(SIGINT, &sa, NULL) == -1) {
         fprintf(stdout,
-                "Warning, session will be unstable \n");
+            "Warning, session will be unstable \n");
     }
     
     /* starts the remote execution; waits until done */
