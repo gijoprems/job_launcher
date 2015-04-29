@@ -217,7 +217,6 @@ int comlink_server_start(void)
     fprintf(stdout, "server: new connection from %08x:%05d \n",
             ntohl(skt_addr.sin_addr.s_addr), ntohs(skt_addr.sin_port));
 
-
     while(comlink.comlink_break == 0) {
         if (comlink_server_task(fd) == -1)
             break;

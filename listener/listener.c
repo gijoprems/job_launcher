@@ -38,31 +38,51 @@ static listener_session_t * get_listener_session(void)
 }
 
 /*****************************************************************************/
+/* cleanup the spawned processes */
 
-void * spawn_task_main(void *arg)
+static void cleanup_spawned_instances(listener_session_t *session)
+{
+    int i;
+
+    for(i = 0; i < session->instances; i++) {
+        if (kill(session->spawned[i], SIGTERM) == -1)
+            kill(session->spawned[i], SIGKILL);
+    }
+}
+
+/*****************************************************************************/
+/* actual instaces handler */
+
+static void * spawn_task_main(void *arg)
 {
     int i, status;
-    pid_t spawned[MAX_INSTANCES], wpid;
+    pid_t wpid;
     listener_session_t *session = (listener_session_t *)arg;
-    char *argv[2] = { session->exe_name };
+    char *argv[2] = { session->exe_name, NULL };
 
+    session->nr_failed = 0;
     while(!session->spawn_task_stop) {
         for (i = 0; i < session->instances; i++) {
-            spawned[i] = fork();
-            if (spawned[i] == 0) {
+            session->spawned[i] = fork();
+            if (session->spawned[i] == 0) {
                 execvp(argv[0], argv);
             }
         }
 
-        while ((wpid = wait(&status)) > 0)
-            printf("termination status of %d = %d \n",
+        while ((wpid = wait(&status)) > 0) {
+            fprintf(stdout, "termination status(%d) = %d ",
                     (int)wpid, status);
+            if (WIFEXITED(status))
+                fprintf(stdout, "status = %d \n", WEXITSTATUS(status));
+        }
+        break;
     }
     
     return NULL;
 }
 
 /*****************************************************************************/
+/* creates a task for handling  multiple instaces of the command */
 
 static int spawn_task_setup(void)
 {
@@ -99,11 +119,10 @@ static int listener_handle_ctrlmsg(char *buf, listener_session_t *s)
     fprintf(stdout, "listener: ctrl message = %s \n", buf);
 
     if (strcmp(buf, "start") == 0) {
-        printf("start \n");
         ret = spawn_task_setup();
     }
-    else if (strcmp(buf, "break") == 0) {
-        printf("break \n");
+    else if (strcmp(buf, "stop") == 0) {
+        cleanup_spawned_instances(s);
         s->spawn_task_stop = 1;
         ret = 0;
     }

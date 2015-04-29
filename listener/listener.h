@@ -24,6 +24,10 @@ typedef struct listener_session_s {
     int spawn_task_stop;
     pthread_t spawn_task;
     pthread_attr_t spawn_task_attr;
+
+    /* for the status spawned processes */
+    pid_t spawned[MAX_INSTANCES];
+    int nr_failed;
 }listener_session_t;
 
 /*****************************************************************************/
