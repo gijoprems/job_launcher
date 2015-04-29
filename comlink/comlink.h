@@ -25,7 +25,7 @@ typedef struct comlink_params_s {
 
     int init_done; /* To avoid multiple init of comlink */
     
-    void (*receive_cb)(int fd, struct sockaddr_in *addr,
+    void (*receive_cb)(int fd,
             unsigned int type, char *buf, int len);
     void (*shutdown_cb)(int fd);
 }comlink_params_t;

@@ -167,7 +167,7 @@ static int comlink_server_task(int fd, struct sockaddr_in *addr)
 
     /* normal operation, data received; pas it to the callback */
     if (comlink.params.receive_cb != NULL && rx_len > 0)
-        comlink.params.receive_cb(fd, addr, header.type, buf, buf_len);
+        comlink.params.receive_cb(fd, header.type, buf, buf_len);
 
     cl->rx_len = 0;    
     
@@ -354,7 +354,7 @@ static int comlink_client_task(void)
             if (comlink.params.receive_cb != NULL && rx_len > 0)
                 /* text status message; FIX */
                 comlink.params.receive_cb(cl->skt_conns[i],
-                    NULL, STATUS_MESSAGE, buf, buf_len);
+                    STATUS_MESSAGE, buf, buf_len);
         }
     }
    

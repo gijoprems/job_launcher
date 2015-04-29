@@ -168,12 +168,17 @@ static int parse_hostfile(char *file)
 
 /*****************************************************************************/
 
-static void launcher_rxmsg_callback(int fd, struct sockaddr_in *addr,
+static void launcher_rxmsg_callback(int fd,
         unsigned int msg_type, char *buf, int len)
 {
     launcher_session_t *s = get_launcher_session();
+
+    /* FIX, find a better way to report the status */
     
-    s->nr_ackd += 1; /* FIX, this could be a bug */
+    /* for now, just print the termination status */
+    fprintf(stdout, "%s \n", buf);
+    
+    s->nr_ackd += 1;
     if (s->nr_active <= s->nr_ackd) {
         fprintf(stdout, "launcher: recvd ack from all \n");
         launcher_session_cleanup(s);

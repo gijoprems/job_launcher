@@ -110,12 +110,11 @@ static void * spawn_task_main(void *arg)
         diff = session->instances - nr_success;
         if (diff != 0)
             sprintf(session->status,
-                "status(%08x): abnormal exit in %d instances",
-                htonl(session->skt_addr.sin_addr.s_addr), diff);
+                "status(%s): abnormal exit in %d instances",
+                "", diff);
         else
             sprintf(session->status,
-                "status(%08x): normal exit",
-                htonl(session->skt_addr.sin_addr.s_addr));
+                "status(%s): normal exit", "");
 
         report_exec_status(session->skt_fd, session->status);
         break;
@@ -177,7 +176,7 @@ static int listener_handle_ctrlmsg(char *buf, listener_session_t *s)
 
 /*****************************************************************************/
 
-static void listener_rxmsg_callback(int fd, struct sockaddr_in *addr,
+static void listener_rxmsg_callback(int fd,
         unsigned int msg_type, char *buf, int len)
 {
     char temp_buf[256];
@@ -185,7 +184,6 @@ static void listener_rxmsg_callback(int fd, struct sockaddr_in *addr,
     listener_session_t *session = get_listener_session();
     
     session->skt_fd = fd;
-    session->skt_addr = *addr;
     
     switch(msg_type) {
         case PROC_INSTANCES:

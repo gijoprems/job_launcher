@@ -8,6 +8,7 @@
 
 #define MAX_INSTANCES    (100)
 #define MAX_FILENAME_LEN (256)
+#define MAX_HOSTNAME_LEN (256)
 
 /*****************************************************************************/
 /* listener session params */
@@ -20,8 +21,9 @@ typedef struct listener_session_s {
     
     /* host info */
     int instances;
+    char hostname[MAX_HOSTNAME_LEN];
     char exe_name[MAX_FILENAME_LEN];
-
+    
     /* for managing the proc spawn thread */
     int spawn_task_stop;
     pthread_t spawn_task;
