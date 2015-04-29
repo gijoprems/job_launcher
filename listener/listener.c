@@ -87,7 +87,8 @@ static void * spawn_task_main(void *arg)
     session->nr_failed = 0;
     strncpy(session->status, "not spawned\0", 12);
 
-    while(!session->spawn_task_stop) {
+        do {
+//    while(!session->spawn_task_stop) {
         for(i = 0; i < session->instances; i++) {
             session->spawned[i] = fork();
             if (session->spawned[i] == 0) {
@@ -118,7 +119,7 @@ static void * spawn_task_main(void *arg)
 
         report_exec_status(session->skt_fd, session->status);
         break;
-    }
+    }while(0);
 
     return NULL;
 }
@@ -170,7 +171,7 @@ static int listener_handle_ctrlmsg(char *buf, listener_session_t *s)
     }
     else
         return -1;
-
+     
     return ret;
 }
 
@@ -202,7 +203,7 @@ static void listener_rxmsg_callback(int fd, struct sockaddr_in *addr,
         case CTRL_MESSAGE:
             memset(temp_buf, '\n', 256);
             strcpy(temp_buf, buf);
-            listener_handle_ctrlmsg(buf, session);
+            listener_handle_ctrlmsg(temp_buf, session);
             break;
             
         default:

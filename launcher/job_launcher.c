@@ -50,9 +50,16 @@ static launcher_session_t * get_launcher_session()
 
 static void launcher_session_cleanup(launcher_session_t *session)
 {
-    while(session->host_count--) {
-      if (session->host_info[session->host_count])
-	  free(session->host_info[session->host_count]);
+    int i;
+
+    if (!session->valid)
+        return;
+
+    session->valid = 0;    
+    for(i = 0; i < session->host_count; i++) {
+      if (session->host_info[i])
+	  free(session->host_info[i]);
+          session->host_info[i] = NULL;
     }
 
     comlink_client_shutdown();
@@ -166,10 +173,7 @@ static void launcher_rxmsg_callback(int fd, struct sockaddr_in *addr,
 {
     launcher_session_t *s = get_launcher_session();
     
-    fprintf(stdout, "launcher: rxdata = %s, active = %d, ackd = %d \n",
-        buf, s->nr_active, s->nr_ackd);
-
-    s->nr_ackd += 1; /* FIX, this is a bug */    
+    s->nr_ackd += 1; /* FIX, this could be a bug */
     if (s->nr_active <= s->nr_ackd) {
         fprintf(stdout, "launcher: recvd ack from all \n");
         launcher_session_cleanup(s);
@@ -199,7 +203,8 @@ static int launcher_session_setup(launcher_session_t *session)
 
     session->nr_ackd = 0;
     session->nr_active = 0;
-
+    session->valid = 1;
+    
     memset(cl_params, 0, sizeof(comlink_params_t));
     cl_params->buffer = comlink_buf;
     cl_params->buf_len = COMLINK_BUF_SIZE;
@@ -240,22 +245,16 @@ static void fill_header(comlink_header_t *msg, int type, int len)
 /*****************************************************************************/
 /* main handlers for the launcher */
 
-static int launcher_send_ctrlmsg(char *msg, launcher_session_t *session)
+static int launcher_send_ctrlmsg(int fd, char *msg, launcher_session_t *session)
 {
-    int i;
     int len;
     int ret = 0;
     comlink_header_t header;
     
-    for(i = 0; i < session->host_count; i++) {
-        fprintf(stdout, "host(%d) = %s \n",
-            i, session->host_info[i]->hostname);
-        
-        len = sizeof(msg);
-        fill_header(&header, CTRL_MESSAGE, len);
-        ret = comlink_sendto_server(i, &header, msg, len);
-    }
-    
+    len = sizeof(msg);
+    fill_header(&header, CTRL_MESSAGE, len);
+    ret = comlink_sendto_server(fd, &header, msg, len);
+
     return ret;
 }
 
@@ -280,10 +279,9 @@ static int launcher_session_start(launcher_session_t *session)
         fill_header(&header, EXEC_FILENAME, len);
         ret = comlink_sendto_server(i, &header, session->exe_name, len);
 
-        if (launcher_send_ctrlmsg("start", session) == -1) {
-            fprintf(stderr, "launcher: failed to send start cmd \n");
-            ret = -1;
-        }
+        if (launcher_send_ctrlmsg(i, "start", session) == -1)
+            fprintf(stderr,
+                "launcher: start cmd failed; host will be ignored \n");
     }
 
     /* start the client process to wait for reply messages */
@@ -297,10 +295,13 @@ static int launcher_session_start(launcher_session_t *session)
 
 static void launcher_signal_handler(int signal)
 {
+    int i;
     launcher_session_t *session = get_launcher_session();
 
     fprintf(stdout, "Ctrl+C, exiting \n");
-    launcher_send_ctrlmsg("stop", session);
+    for(i = 0; i < session->host_count; i++)
+        launcher_send_ctrlmsg(i, "stop", session);
+        
     launcher_session_cleanup(session);
 }
 

@@ -27,6 +27,9 @@ typedef struct lanucher_session_s {
     /* comlink params for lancher<->listener session */
     comlink_params_t cl_params;
 
+    /* local session flags */  
+    int valid;
+    
     /* remote host info */
     int instances;
     int host_count;
